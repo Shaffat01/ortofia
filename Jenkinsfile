@@ -44,9 +44,9 @@ pipeline {
             steps {
                 echo '🚀 Deploying container from Docker Hub on Port 8085...'
                 sh """
-                    docker stop veranda-hub-container || true
-                    docker rm veranda-hub-container || true
-                    docker run -d --name veranda-hub-container -p 8085:80 ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}
+                    docker stop ortofia-hub-container || true
+                    docker rm ortofia-hub-container || true
+                    docker run -d --name ortofia-hub-container -p 8085:80 ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}
                 """
             }
         }
