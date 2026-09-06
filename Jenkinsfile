@@ -2,10 +2,25 @@ pipeline {
     agent any
 
     environment {
-        // ⚠️ তোমার আসল Docker Hub Username বসাও
-        DOCKER_USER = 'shaffat01'
-        IMAGE_NAME = 'ortofia'
-        IMAGE_TAG = "${env.BUILD_NUMBER}" // প্রতি বিল্ডে আলাদা ট্যাগ হবে (v1, v2, v3...)
+        IMAGE_NAME = "ortofia-app"
+    }
+
+    parameters {
+        choice(
+            name: 'DEPLOY_ENV',
+            choices: ['dev', 'prod'],
+            description: 'Select Environment to Deploy'
+        )
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'v1.0',
+            description: 'Docker Image Tag/Version'
+        )
+        booleanParam(
+            name: 'RUN_HEALTH_CHECK',
+            defaultValue: true,
+            description: 'Run HTTP Health Check after deploy?'
+        )
     }
 
     stages {
@@ -18,50 +33,62 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                echo "🐳 Building Image: ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}"
-                sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG} ."
-                sh "docker tag ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_USER}/${IMAGE_NAME}:latest"
+                echo "🐳 Building Docker Image: ${IMAGE_NAME}:${params.IMAGE_TAG}"
+                // Double quotes so Groovy expands variables
+                sh "docker build -t ${IMAGE_NAME}:${params.IMAGE_TAG} ."
             }
         }
 
-        stage('Push to Docker Hub') {
+        stage('Conditional Deployment (if-else)') {
             steps {
-                echo '🔐 Logging in to Docker Hub & Pushing Image...'
-                // Jenkins Credentials Manager থেকে নিরাপদভাবে লগইন করা
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker-hub-credentials', 
-                    passwordVariable: 'DOCKER_PASS', 
-                    usernameVariable: 'DOCKER_USER_ENV'
-                )]) {
-                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER_ENV --password-stdin'
-                    sh "docker push ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}"
-                    sh "docker push ${DOCKER_USER}/${IMAGE_NAME}:latest"
+                script {
+                    def tag = params.IMAGE_TAG
+                    def image = env.IMAGE_NAME
+
+                    if (params.DEPLOY_ENV == 'dev') {
+                        echo "🚀 Deploying to DEV Environment on Port 8083..."
+                        sh """
+                            docker stop veranda-dev-container || true
+                            docker rm veranda-dev-container || true
+                            docker run -d --name veranda-dev-container -p 8083:80 ${image}:${tag}
+                        """
+                    } else if (params.DEPLOY_ENV == 'prod') {
+                        echo "🚀 Deploying to PROD Environment on Port 8082..."
+                        sh """
+                            docker stop veranda-prod-container || true
+                            docker rm veranda-prod-container || true
+                            docker run -d --name veranda-prod-container -p 8082:80 ${image}:${tag}
+                        """
+                    } else {
+                        error("❌ Invalid environment selected!")
+                    }
                 }
             }
         }
 
-        stage('Deploy Application') {
+        stage('Health Check') {
+            when {
+                expression { return params.RUN_HEALTH_CHECK }
+            }
             steps {
-                echo '🚀 Deploying container from Docker Hub on Port 8085...'
-                sh """
-                    docker stop ortofia-hub-container || true
-                    docker rm ortofia-hub-container || true
-                    docker run -d --name ortofia-hub-container -p 8085:80 ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}
-                """
+                echo '🔍 Running Health Check...'
+                script {
+                    def targetPort = (params.DEPLOY_ENV == 'dev') ? '8083' : '8082'
+                    sh "sleep 3 && curl -sI http://localhost:${targetPort} | head -n 1"
+                }
             }
         }
     }
 
     post {
         always {
-            echo '🧹 Cleaning up local dangling images...'
-            sh 'docker image prune -f || true'
+            echo '🧹 Pipeline execution completed.'
         }
         success {
-            echo "🎉 SUCCESS: Image pushed to Docker Hub and App Live on Port 8085!"
+            echo "🎉 SUCCESS: Deployed ${params.IMAGE_TAG} to ${params.DEPLOY_ENV}!"
         }
         failure {
-            echo "❌ FAILURE: Docker Hub Push or Deployment failed!"
+            echo "❌ FAILURE: Pipeline failed for ${params.DEPLOY_ENV}!"
         }
     }
 }
