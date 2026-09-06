@@ -4,7 +4,7 @@ pipeline {
     environment {
         // ⚠️ তোমার আসল Docker Hub Username বসাও
         DOCKER_USER = 'shaffat01'
-        IMAGE_NAME = 'veranda-app'
+        IMAGE_NAME = 'ortofia'
         IMAGE_TAG = "${env.BUILD_NUMBER}" // প্রতি বিল্ডে আলাদা ট্যাগ হবে (v1, v2, v3...)
     }
 
